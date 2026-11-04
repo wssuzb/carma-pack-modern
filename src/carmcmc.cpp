@@ -18,6 +18,8 @@
 #include <vector>
 #include <utility>
 #include <numeric>
+#include <limits>
+#include <stdexcept>
 // Include the MCMC sampler header files
 #include <random.hpp>
 #include <proposals.hpp>
@@ -31,11 +33,40 @@ std::shared_ptr<CAR1>
 RunCar1Sampler(int sample_size, int burnin, std::vector<double> time, std::vector<double> y, std::vector<double> yerr, 
 	       int thin, const std::vector<double>& init)
 {
+    // Fail before constructing a model or adapting proposals. Keep the original
+    // proposal covariance calculation below for every accepted input.
+    if (sample_size <= 0 || burnin < 0 || thin <= 0 ||
+        static_cast<long long>(burnin) + static_cast<long long>(thin)*sample_size > std::numeric_limits<int>::max()) {
+        throw std::invalid_argument("CAR1 invalid sample_size, burnin or thin");
+    }
+    if (time.size() < 3 || y.size() != time.size() || yerr.size() != time.size()) {
+        throw std::invalid_argument("CAR1 requires equal data lengths >=3");
+    }
+    for (std::size_t i=0; i<time.size(); ++i) {
+        if (!std::isfinite(time[i]) || !std::isfinite(y[i]) ||
+            !std::isfinite(yerr[i]) || yerr[i] <= 0.0 ||
+            (i && (time[i] <= time[i-1] || !std::isfinite(1.0/(time[i]-time[i-1]))))) {
+            throw std::invalid_argument("CAR1 requires finite sorted unique times, values and positive errors");
+        }
+    }
+    if (!init.empty() && init.size() != 4) {
+        throw std::invalid_argument("CAR1 explicit init must contain 4 finite parameters");
+    }
+    const double span = time.back()-time.front();
+    if (!std::isfinite(span) || !std::isfinite(1.0/span) || 1.0/span <= 0.0) {
+        throw std::invalid_argument("CAR1 time span cannot define finite prior bounds");
+    }
     int p = 1;    
     double sum = std::accumulate(y.begin(), y.end(), 0.0);
     double mean = sum / y.size();
     double sq_sum = std::inner_product(y.begin(), y.end(), y.begin(), 0.0);
     double var = (sq_sum / y.size() - mean * mean);
+
+    if (!std::isfinite(var) || var <= 0.0 ||
+        !std::isfinite(2.0*var*var/y.size()) || 2.0*var*var/y.size() <= 0.0 ||
+        !std::isfinite(var/y.size()) || var/y.size() <= 0.0) {
+        throw std::invalid_argument("CAR1 requires positive finite empirical variance and proposal scale at this numerical precision");
+    }
 
 	double max_stdev = 10.0 * std::sqrt(var); // For prior: maximum standard-deviation of CAR(1) process
         
@@ -64,6 +95,10 @@ RunCar1Sampler(int sample_size, int burnin, std::vector<double> time, std::vecto
 	// Construct the parameter object
     CAR1 Car1Par(true, "CAR(1)", time, y, yerr);
     Car1Par.SetPrior(max_stdev);
+
+    if (!init.empty()) {
+        Car1Par.SetStartingValue(arma::conv_to<arma::vec>::from(init));
+    }
 
     // Add Robust Adaptive Metropolis Step
     CarModel.AddStep( new AdaptiveMetro(Car1Par, RAMProp, prop_covar, target_rate, burnin) );

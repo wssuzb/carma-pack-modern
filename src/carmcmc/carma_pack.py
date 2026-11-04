@@ -57,7 +57,7 @@ class CarmaModel(object):
         :param nsamples: The number of samples from the posterior to generate.
         :param ntemperatures: Number of parallel MCMC chains to run in the parallel tempering algorithm. Default is 1
             (no tempering) for p = 1 and max(10, p+q) for p > 1.
-        :param nburnin: Number of burnin iterations to run. The default is nsamples / 2.
+        :param nburnin: Number of burnin iterations to run. The default is nsamples // 2.
         :param nthin: Thinning interval for the MCMC sampler. Default is 1 (no thinning).
 
         :return: Either a CarmaSample or Car1Sample object, depending on the values of self.p. The CarmaSample object
@@ -68,7 +68,7 @@ class CarmaModel(object):
             ntemperatures = max(10, self.p + self.q)
 
         if nburnin is None:
-            nburnin = nsamples / 2
+            nburnin = nsamples // 2
 
         if init is None:
             init = carmcmcLib.vecD()
@@ -315,7 +315,7 @@ class CarmaSample(samplers.MCMCSample):
         self._samples['loglik'] = loglik
 
         # make the parameter names (i.e., the keys) public so the user knows how to get them
-        self.parameters = self._samples.keys()
+        self.parameters = list(self._samples)
         self.newaxis()
 
         self.mle = {}
@@ -339,7 +339,7 @@ class CarmaSample(samplers.MCMCSample):
         psd_width = np.zeros(self.p)
         psd_cent = np.zeros(self.p)
 
-        for i in range(self.p / 2):
+        for i in range(self.p // 2):
             quad1 = quad_coefs[2 * i]
             quad2 = quad_coefs[2 * i + 1]
 
@@ -373,7 +373,7 @@ class CarmaSample(samplers.MCMCSample):
         else:
             quad_coefs = np.exp(MLE.x[3 + self.p:])
             ma_roots = np.empty(quad_coefs.size, dtype=complex)
-            for i in range(self.q / 2):
+            for i in range(self.q // 2):
                 quad1 = quad_coefs[2 * i]
                 quad2 = quad_coefs[2 * i + 1]
 
@@ -675,6 +675,9 @@ class CarmaSample(samplers.MCMCSample):
             ar_roots = self._samples['ar_roots'][random_index]
             ma_coefs = self._samples['ma_coefs'][random_index]
 
+        # Kalman state dimension is p; missing higher MA powers are zero.
+        ma_coefs = np.pad(ma_coefs, (0, len(ar_roots) - len(ma_coefs)))
+
         # expose C++ Kalman filter class to python
         kfilter = carmcmcLib.KalmanFilterp(arrayToVec(self.time),
                                            arrayToVec(self.y - mu),
@@ -900,7 +903,7 @@ class Car1Sample(CarmaSample):
 
         self._samples['loglik'] = loglik
         # make the parameter names (i.e., the keys) public so the use knows how to get them
-        self.parameters = self._samples.keys()
+        self.parameters = list(self._samples)
         self.newaxis()
 
     def generate_from_trace(self, trace):

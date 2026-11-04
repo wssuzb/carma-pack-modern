@@ -7,7 +7,6 @@ __author__ = 'Brandon C. Kelly'
 import numpy as np
 from matplotlib import pyplot as plt
 import scipy.stats
-import acor
 
 
 class MCMCSample(object):
@@ -77,6 +76,7 @@ class MCMCSample(object):
 
         :param trace: The parameter trace, a numpy array.
         """
+        import acor  # Optional original diagnostic; no replacement estimator.
         acors = []
         for i in range(trace.shape[1]):
             tau, mean, sigma = acor.acor(trace[:, i].real)  # Warning, does not work with numpy.complex
@@ -262,7 +262,8 @@ class MCMCSample(object):
         # Also a note: this does not work if the outer contour is not
         # fully connected.
         if doPlotStragglers:
-            outer = cont.collections[0]._paths
+            outer = [__import__("matplotlib.path", fromlist=["Path"]).Path(segment)
+                     for segment in cont.allsegs[0] if len(segment) >= 3]
             sx = []
             sy = []
             for i in range(npts):

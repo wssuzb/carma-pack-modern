@@ -1,0 +1,17 @@
+{
+  "upstream_commit": "26616d99e3b3b38a2c9dc76b6fc7ff563af8f2f1",
+  "phase1_commit": "9508ecfdaec59b0b9a64197b12dbb379a9ccac61",
+  "changes": {
+    "src/carpack.cpp": {
+      "upstream_sha256": "3e5802eb922c36edc6afc1311336ba49db3ed6562ad56f72122acb38157ca2da",
+      "patched_sha256": "0789bf715bd4664aef10d89e337ca69106d5b77288a26326c57ad8d8213ecf86",
+      "reason": "CAR1::StartingValue conditions the initial tau draw on original prior support, checks finite density and limits attempts to 128; CAR1::SetStartingValue rejects invalid explicit input without fallback. No target-density, Kalman, proposal, or acceptance changes."
+    },
+    "src/carmcmc.cpp": {
+      "upstream_sha256": "79accdfe1ab8c7017415a3df9ccca84cbbf4bd55b42f4b317244804f170e524a",
+      "patched_sha256": "bc3e3e5e04eb7224cd68f94d5ee3b259ee0a0961759998c51a6b61351ed363b9",
+      "reason": "RunCar1Sampler rejects malformed/degenerate data, nonrepresentable original proposal variance, counts overflow and invalid explicit init before sampling. Original proposal covariance formula and all valid explicit transitions are retained."
+    }
+  },
+  "all_other_original_files": "byte-identical; enforced by test_original_core_hashes"
+}

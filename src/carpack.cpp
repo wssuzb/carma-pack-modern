@@ -32,68 +32,59 @@ extern RandomGenerator RandGen;
 						METHODS OF CAR1 CLASS
  *******************************************************************/
 
-// Method of CAR1 class to generate the starting values of the
-// parameters theta = (mu, sigma, measerr_scale, log(omega)).
-
+// Initial state only: theta = (stationary stdev, error-variance scale,
+// mean, log(omega)). The posterior and all transition steps are unchanged.
 arma::vec CAR1::StartingValue()
 {
-	double log_omega_start, car1_stdev_start, sigma;
-
-	// Initialize the standard deviation of the CAR(1) process
-	// by drawing from its prior
-	car1_stdev_start = RandGen.scaled_inverse_chisqr(y_.n_elem-1, arma::var(y_));
-	car1_stdev_start = sqrt(car1_stdev_start);
-    
-    // Get initial value of the time series mean
-    double mu = RandGen.normal(arma::mean(y_), car1_stdev_start / y_.n_elem);
-
-	// Initialize log(omega) to log( 1 / (a * median(dt)) ), where
-	// a ~ Uniform(1,50) , under the constraint that 
-	// tau = 1 / omega < max(time)
-	
+    if (time_.n_elem < 3 || y_.n_elem != time_.n_elem ||
+        yerr_.n_elem != time_.n_elem || !time_.is_finite() ||
+        !y_.is_finite() || !yerr_.is_finite() || arma::any(yerr_ <= 0.0)) {
+        throw std::invalid_argument("CAR1 initialization requires >=3 finite observations and positive errors");
+    }
     arma::vec dt = time_(arma::span(1,time_.n_elem-1)) - time_(arma::span(0,time_.n_elem-2));
-	log_omega_start = -1.0 * log(arma::median(dt) * RandGen.uniform( 1.0, 50.0 ));
-	log_omega_start = std::min(log_omega_start, max_freq_);
-	
-	sigma = car1_stdev_start * sqrt(2.0 * exp(log_omega_start));
-	
-	// Get initial value of the measurement error scaling parameter by
-	// drawing from its prior.
-	
-	double measerr_scale = RandGen.scaled_inverse_chisqr(measerr_dof_, 1.0);
-    measerr_scale = std::min(measerr_scale, 1.99);
-    measerr_scale = std::max(measerr_scale, 0.51);
-	
-	arma::vec theta(4);
-	
-	theta << car1_stdev_start << measerr_scale << mu << log_omega_start << arma::endr;
-	
-	// Initialize the Kalman filter
-    pKFilter_->SetOmega(exp(log_omega_start));
-    pKFilter_->SetSigsqr(sigma * sigma);
-    arma::vec proposed_yerr = sqrt(measerr_scale) * yerr_;
-    pKFilter_->SetTimeSeriesErr(proposed_yerr);
-    arma::vec ycent = y_ - mu;
-    pKFilter_->SetTimeSeries(ycent);
-    pKFilter_->Filter();
-	
-	return theta;
+    const double yvar = arma::var(y_);
+    if (!dt.is_finite() || dt.min() <= 0.0 || !std::isfinite(yvar) || yvar <= 0.0 ||
+        !std::isfinite(min_freq_) || !std::isfinite(max_freq_) ||
+        min_freq_ <= 0.0 || max_freq_ <= min_freq_ ||
+        !std::isfinite(max_stdev_) || max_stdev_ <= 0.0) {
+        throw std::invalid_argument("CAR1 initialization requires nondegenerate data and finite prior bounds");
+    }
+    const double median_dt = arma::median(dt);
+    // Original tau = median(dt) * Uniform(1,50). Condition that initial
+    // distribution on tau <= time span, rather than comparing log(omega)
+    // with a linear frequency or allowing omega below its prior bound.
+    const double max_a = std::min(50.0, (time_.max()-time_.min()) / median_dt);
+    const int max_attempts = 128;
+    for (int attempt=0; attempt<max_attempts; ++attempt) {
+        const double stdev = sqrt(RandGen.scaled_inverse_chisqr(y_.n_elem-1, yvar));
+        const double mu = RandGen.normal(arma::mean(y_), stdev / y_.n_elem);
+        const double log_omega = -log(median_dt * RandGen.uniform(1.0, max_a));
+        double scale = RandGen.scaled_inverse_chisqr(measerr_dof_, 1.0);
+        scale = std::max(0.51, std::min(scale, 1.99));
+        arma::vec theta = {stdev, scale, mu, log_omega};
+        // LogDensity also initializes the existing Kalman filter consistently.
+        // Rejection here selects an initial point, not an MCMC transition.
+        if (theta.is_finite() && stdev > 0.0 && CheckPriorBounds(theta) &&
+            std::isfinite(LogDensity(theta))) {
+            return theta;
+        }
+    }
+    throw std::runtime_error("CAR1 could not find a finite legal initial state after 128 attempts");
 }
 
 arma::vec CAR1::SetStartingValue(arma::vec init)
 {
-   if (init.n_elem != 4) {
-      std::cout << "WARNING: initial guess not length 4, initializing with prior" << std::endl;
-      return StartingValue();
+   if (init.n_elem != 4 || !init.is_finite()) {
+      throw std::invalid_argument("CAR1 explicit init must contain 4 finite parameters");
+   }
+   if (!CheckPriorBounds(init)) {
+      throw std::invalid_argument("CAR1 explicit init is outside the prior bounds");
+   }
+   double logpost = LogDensity(init);
+   if (!std::isfinite(logpost)) {
+      throw std::invalid_argument("CAR1 explicit init must have finite log density");
    }
 
-   double logpost = LogDensity(init);
-   bool good_initials = arma::is_finite(logpost);
-   if (good_initials == false) {
-      std::cout << "WARNING: initial guess yields non-finite likelihood, initializing with prior" << std::endl;
-      return StartingValue();
-   }
-      
    double mu, log_omega_start, car1_stdev_start, sigma, measerr_scale;
    car1_stdev_start = init[0];
    measerr_scale    = init[1];

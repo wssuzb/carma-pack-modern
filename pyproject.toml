@@ -1,0 +1,18 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "pybind11>=2.13"]
+build-backend = "scikit_build_core.build"
+[project]
+name = "carma_pack_modern"
+version = "0.1.1"
+description = "Modern bindings for the original carma_pack numerical core"
+requires-python = ">=3.10"
+dependencies = ["numpy", "scipy", "matplotlib"]
+[project.optional-dependencies]
+diagnostics = ["acor"]
+test = ["pytest"]
+[tool.scikit-build]
+wheel.packages = ["src/carmcmc"]
+cmake.build-type = "Release"
+build-dir = "build/wheel/{wheel_tag}"
+build.tool-args = ["-j2"]
+sdist.exclude = ["build", "dist", "audit/*.log", "audit/phase2/*.log"]
